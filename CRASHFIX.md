@@ -27,6 +27,15 @@
 
 `jb.html?log=1&patch=0&payload=0` — stops after sandbox proof if KRW passes (still dirty from 663 read path; reboot if anything kernel-touching ran).
 
+## Spinner / empty log
+
+- Use **`jb.html?log=1`** (not only `index.html?log=1`).
+- Or **`index.html?log=1&nocache=1`** — skips “press X after CACHED” wait.
+- Spinner-only mode now shows **live status text** under the spinner (`FW`, `PRIMITIVE-OK`, …).
+- If **`MODULE-LOAD-FAIL`**, upload the full site (all `.js`, `patches/`, `payload2.bin`).
+
 ## Deploy
 
-Push **`jb.js`** and **`jb.html`** (`?v=11-crashfix`). Clear GitHub Pages / appcache or bump manifest if offline cache serves old JS.
+Push **`jb.js`** + **`jb.html`** (`v=12-boot`). Clear GitHub Pages / appcache or use `?nocache=1`.
+
+**Infinite spinner + empty log:** usually old GitHub Pages still serving pre-`12-ui` `jb.html`, or `jb.js` stuck on static `import` of `core.js` before any log line. `12-boot` loads modules after `CHAIN-START` / `BOOT-OK` lines.

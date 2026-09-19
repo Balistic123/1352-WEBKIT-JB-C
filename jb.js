@@ -1,7 +1,10 @@
-import { establishPrimitive } from "./core.js?v=10";
-import { installWindowP, pairStatus } from "./mem.js";
-import { int64 } from "./int64.js";
-import { offsetsFor } from "./ps4_offsets.js";
+/** Loaded in async boot so ?log=1 shows progress before heavy modules parse. */
+let establishPrimitive;
+let installWindowP;
+let pairStatus;
+let int64;
+let offsetsFor;
+let JSVALUE_UNDEFINED;
 
 const outEl = document.getElementById("out");
 const stateEl = document.getElementById("state");
@@ -48,9 +51,30 @@ function terse(s) {
 }
 
 const SHOW_LOG = params.get("log") === "1";
+window.__JB_STARTED__ = true;
+window.__JB_REV__ = "12-boot";
 if (SHOW_LOG && document.body) document.body.className = "log";
+else if (document.body && document.body.className === "running")
+  document.body.className = "running";
+
+function pokeSpinner(tag, detail) {
+  if (SHOW_LOG) return;
+  const msg = document.getElementById("msg");
+  if (!msg) return;
+  msg.style.display = "block";
+  const d =
+    detail == null || detail === ""
+      ? ""
+      : ": " + String(detail).slice(0, 96);
+  msg.textContent = tag + d;
+}
+
 function finishUI(ok) {
-  if (SHOW_LOG || !document.body) return;
+  if (!document.body) return;
+  if (SHOW_LOG) {
+    state(ok ? "complete" : "failed", ok ? "ok" : "bad");
+    return;
+  }
   document.body.className = ok ? "done" : "fail";
   const msgEl = document.getElementById("msg");
   if (!msgEl) return;
@@ -64,9 +88,11 @@ function finishUI(ok) {
   }
 }
 function mark(tag, detail) {
+  if (tag === "CHAIN-START") window.__JB_CHAIN__ = true;
   const raw = detail;
   detail = terse(detail);
   lines.push(tag + (detail == null || detail === "" ? "" : "  " + detail));
+  pokeSpinner(tag, detail);
   if (SHOW_LOG && outEl) {
     const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
     outEl.innerHTML = lines
@@ -135,7 +161,6 @@ const SYS = {
   kill: 37,
   getppid: 39,
 };
-const JSVALUE_UNDEFINED = new int64(0x0a, 0xfffffff7);
 const keepAlive = [];
 let mainMf = null,
   mainOrig = null,
@@ -161,6 +186,23 @@ function shouldRestoreJbHandles() {
   const opened = [];
   let closeFd = null;
   try {
+    mark("CHAIN-START", "rev=12-boot log=" + (SHOW_LOG ? 1 : 0));
+    state("loading modules…", "warn");
+    pokeSpinner("BOOT", "core.js");
+    ({ establishPrimitive } = await import("./core.js?v=12-ui"));
+    mark("BOOT-OK", "core.js");
+    pokeSpinner("BOOT", "mem.js");
+    ({ installWindowP, pairStatus } = await import("./mem.js"));
+    mark("BOOT-OK", "mem.js");
+    pokeSpinner("BOOT", "int64.js");
+    ({ int64 } = await import("./int64.js"));
+    JSVALUE_UNDEFINED = new int64(0x0a, 0xfffffff7);
+    mark("BOOT-OK", "int64.js");
+    pokeSpinner("BOOT", "ps4_offsets.js");
+    ({ offsetsFor } = await import("./ps4_offsets.js"));
+    mark("BOOT-OK", "ps4_offsets.js");
+    state("initializing…", "warn");
+
     const { key, off } = offsetsFor(navigator.userAgent);
     mark("FW", key || "(not a PS4 UA)");
     if (!off) {

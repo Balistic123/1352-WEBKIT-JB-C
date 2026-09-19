@@ -85,6 +85,14 @@
         display: block;
       }
 
+      body.running #msg {
+        display: block;
+        top: calc(50% + 58px);
+        font-size: 12px;
+        color: #8b95a3;
+        padding: 0 12px;
+      }
+
       /* ?log=1 -- the full step log, styled like the landing. */
       body.log #spin,
       body.log #msg {
@@ -144,11 +152,75 @@
     <div id="spin"></div>
     <div id="msg">Restart your console</div>
     <div id="wrap">
-      <div id="state"></div>
+      <div id="state">starting…</div>
       <div id="out"></div>
     </div>
+    <script>
+      (function () {
+        var p = new URLSearchParams(location.search);
+        if (p.get("log") === "1") {
+          document.body.className = "log";
+          var st = document.getElementById("state");
+          var out = document.getElementById("out");
+          if (st) {
+            st.style.display = "block";
+            st.textContent = "Loading modules…";
+          }
+          if (out) {
+            out.style.display = "block";
+            out.textContent = "Tip: open jb.html?log=1 directly (not only index.html).\n";
+          }
+        } else {
+          document.body.className = "running";
+          var msg = document.getElementById("msg");
+          if (msg) {
+            msg.style.display = "block";
+            msg.textContent = "Loading exploit…";
+          }
+        }
+      })();
+    </script>
     <script type="module">
-      import "./jb.js?v=11-crashfix";
+      import("./jb.js?v=12-boot").catch(function (err) {
+        document.body.className = "fail";
+        var spin = document.getElementById("spin");
+        if (spin) spin.style.display = "none";
+        var msg = document.getElementById("msg");
+        if (msg) {
+          msg.style.display = "block";
+          msg.textContent =
+            "jb.js failed to load — redeploy all files or add ?log=1";
+        }
+        var out = document.getElementById("out");
+        if (out) {
+          out.style.display = "block";
+          out.textContent =
+            "MODULE-LOAD-FAIL\n" +
+            (err && err.message ? err.message : String(err)) +
+            "\n\nNeed: jb.js core.js mem.js int64.js ps4_offsets.js rpc_worker.js";
+        }
+      });
+      setTimeout(function () {
+        if (window.__JB_CHAIN__) return;
+        var out = document.getElementById("out");
+        var msg = document.getElementById("msg");
+        var line =
+          "LOAD-WATCHDOG: no CHAIN-START after 15s — old cached jb/core or missing files. Use jb.html?log=1&nocache=1 and redeploy full folder.";
+        if (out && out.textContent.indexOf("LOAD-WATCHDOG") < 0) {
+          out.style.display = "block";
+          out.textContent = (out.textContent || "") + "\n" + line;
+        }
+        if (msg && !window.__JB_STARTED__) {
+          document.body.className = "fail";
+          var spin = document.getElementById("spin");
+          if (spin) spin.style.display = "none";
+          msg.style.display = "block";
+          msg.textContent = "jb.js did not start — check deploy / cache";
+        } else if (msg && window.__JB_STARTED__ && !window.__JB_CHAIN__) {
+          msg.style.display = "block";
+          msg.textContent = "Stuck loading core.js — try ?nocache=1";
+        }
+      }, 15000);
     </script>
   </body>
 </html>
