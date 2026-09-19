@@ -1,10 +1,7 @@
-/** Loaded in async boot so ?log=1 shows progress before heavy modules parse. */
-let establishPrimitive;
-let installWindowP;
-let pairStatus;
-let int64;
-let offsetsFor;
-let JSVALUE_UNDEFINED;
+import { establishPrimitive } from "./core.js?v=10";
+import { installWindowP, pairStatus } from "./mem.js";
+import { int64 } from "./int64.js";
+import { offsetsFor } from "./ps4_offsets.js";
 
 const outEl = document.getElementById("out");
 const stateEl = document.getElementById("state");
@@ -51,48 +48,15 @@ function terse(s) {
 }
 
 const SHOW_LOG = params.get("log") === "1";
-window.__JB_STARTED__ = true;
-window.__JB_REV__ = "12-boot";
 if (SHOW_LOG && document.body) document.body.className = "log";
-else if (document.body && document.body.className === "running")
-  document.body.className = "running";
-
-function pokeSpinner(tag, detail) {
-  if (SHOW_LOG) return;
-  const msg = document.getElementById("msg");
-  if (!msg) return;
-  msg.style.display = "block";
-  const d =
-    detail == null || detail === ""
-      ? ""
-      : ": " + String(detail).slice(0, 96);
-  msg.textContent = tag + d;
-}
-
 function finishUI(ok) {
-  if (!document.body) return;
-  if (SHOW_LOG) {
-    state(ok ? "complete" : "failed", ok ? "ok" : "bad");
-    return;
-  }
+  if (SHOW_LOG || !document.body) return;
   document.body.className = ok ? "done" : "fail";
-  const msgEl = document.getElementById("msg");
-  if (!msgEl) return;
-  if (ok && (payloadRunning || kpatched)) {
-    msgEl.textContent =
-      "Success — reboot the PS4 before closing the browser (kernel .data is dirty)";
-    msgEl.style.display = "block";
-  } else if (!ok) {
-    msgEl.textContent = "Restart your console";
-    msgEl.style.display = "block";
-  }
 }
 function mark(tag, detail) {
-  if (tag === "CHAIN-START") window.__JB_CHAIN__ = true;
   const raw = detail;
   detail = terse(detail);
   lines.push(tag + (detail == null || detail === "" ? "" : "  " + detail));
-  pokeSpinner(tag, detail);
   if (SHOW_LOG && outEl) {
     const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
     outEl.innerHTML = lines
@@ -161,6 +125,7 @@ const SYS = {
   kill: 37,
   getppid: 39,
 };
+const JSVALUE_UNDEFINED = new int64(0x0a, 0xfffffff7);
 const keepAlive = [];
 let mainMf = null,
   mainOrig = null,
@@ -173,36 +138,12 @@ let allDone = false,
   kpatched = false,
   payloadRunning = false;
 
-/** Restoring sandbox creds after kpatch/payload races HEN and panics on exit. */
-function shouldRestoreJbHandles() {
-  if (params.get("keepjb") === "1") return false;
-  if (payloadRunning || kpatched) return false;
-  return true;
-}
-
 (async function () {
   let p = null;
 
   const opened = [];
   let closeFd = null;
   try {
-    mark("CHAIN-START", "rev=12-boot log=" + (SHOW_LOG ? 1 : 0));
-    state("loading modules…", "warn");
-    pokeSpinner("BOOT", "core.js");
-    ({ establishPrimitive } = await import("./core.js?v=12-ui"));
-    mark("BOOT-OK", "core.js");
-    pokeSpinner("BOOT", "mem.js");
-    ({ installWindowP, pairStatus } = await import("./mem.js"));
-    mark("BOOT-OK", "mem.js");
-    pokeSpinner("BOOT", "int64.js");
-    ({ int64 } = await import("./int64.js"));
-    JSVALUE_UNDEFINED = new int64(0x0a, 0xfffffff7);
-    mark("BOOT-OK", "int64.js");
-    pokeSpinner("BOOT", "ps4_offsets.js");
-    ({ offsetsFor } = await import("./ps4_offsets.js"));
-    mark("BOOT-OK", "ps4_offsets.js");
-    state("initializing…", "warn");
-
     const { key, off } = offsetsFor(navigator.userAgent);
     mark("FW", key || "(not a PS4 UA)");
     if (!off) {
@@ -2681,8 +2622,7 @@ function shouldRestoreJbHandles() {
               jbUcred = kptr(curproc) ? read8(curproc.add32(P_UCRED)) : null;
               const pFd = kptr(curproc) ? read8(curproc.add32(P_FD)) : null;
 
-              const prison0Slot = KBASE.add32(off.k_prison0);
-              const rootPrison = read8(prison0Slot);
+              const prison0 = KBASE.add32(off.k_prison0);
               const rootvn = read8(KBASE.add32(off.k_rootvnode));
               mark(
                 "JB-SOURCES",
@@ -2694,10 +2634,8 @@ function shouldRestoreJbHandles() {
                   UCRED +
                   " p_fd=" +
                   pFd +
-                  " prison0_slot=" +
-                  prison0Slot +
-                  " root_prison=" +
-                  rootPrison +
+                  " prison0=" +
+                  prison0 +
                   " rootvnode=" +
                   rootvn,
               );
@@ -2705,7 +2643,6 @@ function shouldRestoreJbHandles() {
                 kptr(curproc) &&
                 kptr(jbUcred) &&
                 kptr(pFd) &&
-                kptr(rootPrison) &&
                 kptr(rootvn) &&
                 sameI64(jbUcred, UCRED);
               if (
@@ -2846,7 +2783,7 @@ function shouldRestoreJbHandles() {
                 U.setInt32(CR_SVUID, 0);
                 U.setInt32(CR_NGROUPS, 1);
                 U.setInt32(CR_RGID, 0);
-                U.setBInt(CR_PRISON, rootPrison);
+                U.setBInt(CR_PRISON, prison0);
                 U.setBInt(CR_SCECAPS1, NEG1);
                 U.setBInt(CR_SCECAPS0, NEG1);
                 F.setBInt(FD_RDIR, rootvn);
@@ -2887,7 +2824,7 @@ function shouldRestoreJbHandles() {
                 jbDone =
                   uidNow2 === 0 &&
                   rbUid === 0 &&
-                  sameI64(rbPrison, rootPrison) &&
+                  sameI64(rbPrison, prison0) &&
                   sameI64(rbRdir, rootvn);
                 jailbroken = jbDone;
                 mark(
@@ -3199,28 +3136,17 @@ function shouldRestoreJbHandles() {
               mark("JB-TDUCRED-THREW", (e6 && e6.message) || String(e6));
             }
 
-            if (jbRestoreHook && shouldRestoreJbHandles()) {
-              jbRestoreHook("end-of-run");
-            } else if (jbRestoreHook && (kpatched || payloadRunning)) {
-              mark(
-                "JB-RESTORE-SKIPPED",
-                "kpatch/payload live — do not restore ucred/fdesc (panics on" +
-                  " exit). Hard-reboot the PS4 before closing the browser.",
-              );
-              window.addEventListener("pagehide", function () {
-                mark(
-                  "JB-PAGEHIDE",
-                  "browser closing with dirty kernel — reboot PS4 if not done",
-                );
-              });
-            } else if (jbRestoreHook && KEEP_JB) {
+            if (jbRestoreHook && !KEEP_JB) jbRestoreHook("end-of-run");
+            else if (jbRestoreHook) {
               mark(
                 "JB-KEEP",
-                "?keepjb=1 -- jailbreak left LIVE. Reboot before closing browser.",
+                "?keepjb=1 -- jailbreak left LIVE. The handles will" +
+                  " be restored on pagehide; if the browser is killed instead," +
+                  " REBOOT rather than closing it.",
               );
               window.addEventListener("pagehide", function () {
                 try {
-                  if (shouldRestoreJbHandles()) jbRestoreHook("pagehide");
+                  jbRestoreHook("pagehide");
                 } catch (e) {}
               });
             }
@@ -3395,12 +3321,7 @@ function shouldRestoreJbHandles() {
     state("threw", "bad");
   } finally {
     try {
-      if (jbRestoreHook && shouldRestoreJbHandles()) jbRestoreHook("finally");
-      else if (jbRestoreHook && (kpatched || payloadRunning))
-        mark(
-          "JB-RESTORE-SKIPPED-FINALLY",
-          "skipped ucred restore after kpatch/payload",
-        );
+      if (jbRestoreHook) jbRestoreHook("finally");
     } catch (e5) {
       mark("JB-RESTORE-THREW", (e5 && e5.message) || String(e5));
     }

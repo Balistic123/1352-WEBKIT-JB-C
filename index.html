@@ -56,7 +56,6 @@
     }
 
     var forced = params.get("force") === "1";
-    var skipCacheWait = params.get("nocache") === "1" || params.get("log") === "1";
     var supported = forced || (fwnum !== null && SUPPORTED[fwnum] === 1);
     detEl.innerHTML = "firmware <b>" + (key || "unknown") + "</b>"
         + (supported ? " &middot; <b>supported</b>"
@@ -81,12 +80,6 @@
     if (!supported) {
         setState("UNSUPPORTED FIRMWARE", "bad");
         waitForTap("UNSUPPORTED (" + (key || "unknown") + ") -- press X or tap to run anyway", go);
-        return;
-    }
-
-    if (skipCacheWait) {
-        setCache("fast path (log/nocache)", true);
-        go();
         return;
     }
 
